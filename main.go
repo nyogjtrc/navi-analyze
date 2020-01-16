@@ -8,26 +8,31 @@ import (
 	client "github.com/influxdata/influxdb1-client/v2"
 )
 
+// ReqNavi _
+type ReqNavi struct {
+	Start            int64                  `json:"start"`
+	NavigationTiming map[string]interface{} `json:"navigation_timing"`
+}
+
 func navi(c *gin.Context) {
-	cli, err := client.NewHTTPClient(client.HTTPConfig{
-		Addr: "http://localhost:8086",
-	})
-	if err != nil {
-		c.AbortWithError(500, err)
-	}
-	defer cli.Close()
 
 	tags := map[string]string{
-		"ip":   "127.0.0.1",
-		"host": "localhost",
-		"path": "/index.html",
-	}
-	fields := map[string]interface{}{
-		"navigationStart": 1579093839831,
-		"loadEventEnd":    1579093841269,
+		"ip":   c.ClientIP(),
+		"path": c.FullPath(),
 	}
 
-	point, err := client.NewPoint("navi", tags, fields, time.Now())
+	req := ReqNavi{
+		NavigationTiming: map[string]interface{}{},
+	}
+
+	err := c.BindJSON(&req)
+	if err != nil {
+		c.AbortWithStatusJSON(400, err)
+	}
+
+	timeNavi := time.Unix(req.Start/1000, (req.Start%1000)*1000000)
+
+	point, err := client.NewPoint("navi", tags, req.NavigationTiming, timeNavi)
 	if err != nil {
 		c.AbortWithError(500, err)
 	}
@@ -41,6 +46,13 @@ func navi(c *gin.Context) {
 
 	bp.AddPoint(point)
 
+	cli, err := client.NewHTTPClient(client.HTTPConfig{
+		Addr: "http://localhost:8086",
+	})
+	if err != nil {
+		c.AbortWithError(500, err)
+	}
+	defer cli.Close()
 	err = cli.Write(bp)
 	if err != nil {
 		c.AbortWithError(500, err)
@@ -59,6 +71,8 @@ func main() {
 	})
 
 	r.POST("/navi", navi)
+
+	r.StaticFile("/", "./dist")
 
 	log.Fatal(r.Run())
 }
